@@ -3,18 +3,20 @@
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_BME280.h>
+#include <BH1750.h>
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 Adafruit_BME280 bme;
+BH1750 lightmeter;
 
 void TaskDisplay(void *pvParameters);
 void TaskEnvironment(void *pvParameters);
 
 SemaphoreHandle_t i2cMutex;
-float temperature = 0, humidity = 0, pressure = 0;
+float temperature = 0, humidity = 0, pressure = 0, lux = 0;
 
 void setup()
 {
@@ -24,6 +26,12 @@ void setup()
     if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
     {
         Serial.println("Fail to initiliaze Oled Display!!!");
+        while(true);
+    }
+
+    if(!lightmeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE, 0x23, &Wire))
+    {
+        Serial.println("Failed to Initialize BH1750!!!");
         while(true);
     }
 
@@ -59,10 +67,15 @@ void TaskEnvironment(void *pvParameneters)
             temperature = bme.readTemperature();
             humidity = bme.readHumidity();
             pressure = bme.readPressure() / 100.0F; // hPa
+            lux = lightmeter.readLightLevel();
 
             if(isnan(temperature) || isnan(humidity) || isnan(pressure))
             {
                 Serial.println("Failed to read from BME280");
+            }
+            else if(isnan(lux))
+            {
+                Serial.println("Failed to read from BH1750");
             }
             else
             {
@@ -77,6 +90,9 @@ void TaskEnvironment(void *pvParameneters)
                 Serial.print("Pressure : ");
                 Serial.print(pressure, 0);
                 Serial.println("hPa");
+
+                Serial.print("Lux : ");
+                Serial.println(lux, 1);
             }
 
             xSemaphoreGive(i2cMutex);
@@ -98,15 +114,18 @@ void TaskDisplay(void *pvParameters)
 
             display.print("Temperature : ");
             display.print(temperature, 1);
-            display.println("C");
+            display.println(" C");
 
             display.print("Humidity : ");
             display.print(humidity, 1);
-            display.println("%");
+            display.println(" %");
 
             display.print("Pressure : ");
             display.print(pressure, 0);
-            display.println("hPa");
+            display.println(" hPa");
+
+            display.print("Lux : ");
+            display.println(lux, 1);
             display.display();
             
             xSemaphoreGive(i2cMutex);
