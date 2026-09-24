@@ -14,6 +14,7 @@ void TaskDisplay(void *pvParameters);
 void TaskEnvironment(void *pvParameters);
 
 SemaphoreHandle_t i2cMutex;
+float temperature = 0, humidity = 0, pressure = 0;
 
 void setup()
 {
@@ -41,7 +42,7 @@ void setup()
     i2cMutex = xSemaphoreCreateMutex();
 
     xTaskCreate(TaskEnvironment, "Environment", 2048, NULL, 1, NULL);
-    xTaskCreate(TaskDisplay, "Display", 1024, NULL, 1, NULL);
+    xTaskCreate(TaskDisplay, "Display", 2048, NULL, 1, NULL);
 }
 
 void loop()
@@ -55,9 +56,9 @@ void TaskEnvironment(void *pvParameneters)
     {
         if (xSemaphoreTake(i2cMutex, portMAX_DELAY) == pdTRUE)
         {
-            float temperature = bme.readTemperature();
-            float humidity = bme.readHumidity();
-            float pressure = bme.readPressure() / 100.0F; // hPa
+            temperature = bme.readTemperature();
+            humidity = bme.readHumidity();
+            pressure = bme.readPressure() / 100.0F; // hPa
 
             if(isnan(temperature) || isnan(humidity) || isnan(pressure))
             {
@@ -91,13 +92,26 @@ void TaskDisplay(void *pvParameters)
     {
         if (xSemaphoreTake(i2cMutex, portMAX_DELAY) == pdTRUE)
         {
+            display.clearDisplay();
             display.setCursor(0, 0);
-            display.println("Environment Dashboard");
-            display.display();
+            display.println("Environment Dashboard\n");
 
+            display.print("Temperature : ");
+            display.print(temperature, 1);
+            display.println("C");
+
+            display.print("Humidity : ");
+            display.print(humidity, 1);
+            display.println("%");
+
+            display.print("Pressure : ");
+            display.print(pressure, 0);
+            display.println("hPa");
+            display.display();
+            
             xSemaphoreGive(i2cMutex);
         }
 
-        vTaskDelay(5000 / portTICK_PERIOD_MS);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
 }
