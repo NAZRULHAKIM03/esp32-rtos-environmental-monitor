@@ -7,6 +7,9 @@
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
+#define BUTTON 25
+#define LED 32
+#define BUZZER 33
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 Adafruit_BME280 bme;
@@ -14,14 +17,29 @@ BH1750 lightmeter;
 
 void TaskDisplay(void *pvParameters);
 void TaskEnvironment(void *pvParameters);
+void TaskAlarm(void *pvParameters);
 
-SemaphoreHandle_t i2cMutex;
+SemaphoreHandle_t i2cMutex, button_semaphore;
 float temperature = 0, humidity = 0, pressure = 0, lux = 0;
+
+void IRAM_ATTR button_isr()
+{
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;              // Special Variable to let RTOS know if waking up task require context switch
+    xSemaphoreGiveFromISR(button_semaphore, &xHigherPriorityTaskWoken);   // if Task waken higher priority than previous running task pdTRUE
+
+    if(xHigherPriorityTaskWoken == pdTRUE)
+    {
+        portYIELD_FROM_ISR();                                   // After isr finish execute, instead of continue previous running task the RTOS will immediately switch to higher priority task(no unnecessary delay)
+    }
+}
 
 void setup()
 {
     Serial.begin(115200);
     Wire.begin();
+    pinMode(BUTTON, INPUT_PULLUP);
+    pinMode(LED, OUTPUT);
+    pinMode(BUZZER, OUTPUT);
 
     if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
     {
@@ -48,9 +66,13 @@ void setup()
     Serial.println("Finish Initialization");
 
     i2cMutex = xSemaphoreCreateMutex();
+    button_semaphore = xSemaphoreCreateBinary();
 
     xTaskCreate(TaskEnvironment, "Environment", 2048, NULL, 1, NULL);
     xTaskCreate(TaskDisplay, "Display", 2048, NULL, 1, NULL);
+    xTaskCreate(TaskAlarm, "Interrupt", 1024, NULL, 2, NULL);
+
+    attachInterrupt(BUTTON, button_isr, FALLING);
 }
 
 void loop()
@@ -132,5 +154,20 @@ void TaskDisplay(void *pvParameters)
         }
 
         vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
+}
+
+void TaskAlarm(void *pvParameters)
+{
+    while(1)
+    {
+        if(xSemaphoreTake(button_semaphore, portMAX_DELAY) == pdTRUE) // portMAX_DELAY means "sleep forever and use 0% CPU until semaphore given"
+        {
+            digitalWrite(LED, HIGH);
+            digitalWrite(BUZZER, HIGH);
+            vTaskDelay(1000 / portTICK_PERIOD_MS);
+            digitalWrite(LED, LOW);
+            digitalWrite(BUZZER, LOW);
+        }
     }
 }
