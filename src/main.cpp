@@ -5,6 +5,14 @@
 #include <Adafruit_BME280.h>
 #include <BH1750.h>
 
+typedef struct
+{
+    float temperature;
+    float humidity;
+    float pressure;
+    float lux;
+} SensorData;
+
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 #define BUTTON 25
@@ -19,8 +27,8 @@ void TaskDisplay(void *pvParameters);
 void TaskEnvironment(void *pvParameters);
 void TaskAlarm(void *pvParameters);
 
+QueueHandle_t sensorQueue;
 SemaphoreHandle_t i2cMutex, button_semaphore;
-float temperature = 0, humidity = 0, pressure = 0, lux = 0;
 
 void IRAM_ATTR button_isr()
 {
@@ -65,6 +73,8 @@ void setup()
 
     Serial.println("Finish Initialization");
 
+    sensorQueue = xQueueCreate(5, sizeof(SensorData));
+
     i2cMutex = xSemaphoreCreateMutex();
     button_semaphore = xSemaphoreCreateBinary();
 
@@ -82,43 +92,47 @@ void loop()
 
 void TaskEnvironment(void *pvParameneters)
 {
+    SensorData currentData;
+
     while(1)
     {
         if (xSemaphoreTake(i2cMutex, portMAX_DELAY) == pdTRUE)
         {
-            temperature = bme.readTemperature();
-            humidity = bme.readHumidity();
-            pressure = bme.readPressure() / 100.0F; // hPa
-            lux = lightmeter.readLightLevel();
-
-            if(isnan(temperature) || isnan(humidity) || isnan(pressure))
-            {
-                Serial.println("Failed to read from BME280");
-            }
-            else if(isnan(lux))
-            {
-                Serial.println("Failed to read from BH1750");
-            }
-            else
-            {
-                Serial.print("Temperature : ");
-                Serial.print(temperature, 1);
-                Serial.println("C");
-
-                Serial.print("Humidity : ");
-                Serial.print(humidity, 1);
-                Serial.println("%");
-
-                Serial.print("Pressure : ");
-                Serial.print(pressure, 0);
-                Serial.println("hPa");
-
-                Serial.print("Lux : ");
-                Serial.println(lux, 1);
-            }
+            currentData.temperature = bme.readTemperature();
+            currentData.humidity = bme.readHumidity();
+            currentData.pressure = bme.readPressure() / 100.0F; // hPa
+            currentData.lux = lightmeter.readLightLevel();
 
             xSemaphoreGive(i2cMutex);
         }
+
+        if(isnan(currentData.temperature) || isnan(currentData.humidity) || isnan(currentData.pressure))
+        {
+            Serial.println("Failed to read from BME280");
+        }
+        else if(isnan(currentData.lux))
+        {
+            Serial.println("Failed to read from BH1750");
+        }
+        else
+        {
+            Serial.print("Temperature : ");
+            Serial.print(currentData.temperature, 1);
+            Serial.println("C");
+
+            Serial.print("Humidity : ");
+            Serial.print(currentData.humidity, 1);
+            Serial.println("%");
+
+            Serial.print("Pressure : ");
+            Serial.print(currentData.pressure, 0);
+            Serial.println("hPa");
+
+            Serial.print("Lux : ");
+            Serial.println(currentData.lux, 1);
+        }
+
+        xQueueSend(sensorQueue, &currentData, portMAX_DELAY);   // Send package to Display Task
 
         vTaskDelay(2000 / portTICK_PERIOD_MS);
     }
@@ -126,34 +140,37 @@ void TaskEnvironment(void *pvParameneters)
 
 void TaskDisplay(void *pvParameters)
 {
+    SensorData receivedData;
+
     while(1)
     {
-        if (xSemaphoreTake(i2cMutex, portMAX_DELAY) == pdTRUE)
+        if(xQueueReceive(sensorQueue, &receivedData, portMAX_DELAY) == pdTRUE)  // sleep until a package arrives
         {
-            display.clearDisplay();
-            display.setCursor(0, 0);
-            display.println("Environment Dashboard\n");
+            if (xSemaphoreTake(i2cMutex, portMAX_DELAY) == pdTRUE)
+            {
+                display.clearDisplay();
+                display.setCursor(0, 0);
+                display.println("Environment Dashboard\n");
 
-            display.print("Temperature : ");
-            display.print(temperature, 1);
-            display.println(" C");
+                display.print("Temperature : ");
+                display.print(receivedData.temperature, 1);
+                display.println(" C");
 
-            display.print("Humidity : ");
-            display.print(humidity, 1);
-            display.println(" %");
+                display.print("Humidity : ");
+                display.print(receivedData.humidity, 1);
+                display.println(" %");
 
-            display.print("Pressure : ");
-            display.print(pressure, 0);
-            display.println(" hPa");
+                display.print("Pressure : ");
+                display.print(receivedData.pressure, 0);
+                display.println(" hPa");
 
-            display.print("Lux : ");
-            display.println(lux, 1);
-            display.display();
-            
-            xSemaphoreGive(i2cMutex);
+                display.print("Lux : ");
+                display.println(receivedData.lux, 1);
+                display.display();
+                
+                xSemaphoreGive(i2cMutex);
+            }
         }
-
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
 }
 
