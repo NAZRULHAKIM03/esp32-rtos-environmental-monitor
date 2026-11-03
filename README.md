@@ -24,7 +24,7 @@ The goal of the project is to practice real RTOS design: splitting work into tas
 | LED | GPIO | 32 |
 | Buzzer | GPIO | 33 |
 
-All three sensors share one I2C bus on the default `Wire` pins (SDA = GPIO 21, SCL = GPIO 22 on a standard ESP32 DevKit).
+Three components share one I2C bus on the default `Wire` pins (SDA = GPIO 21, SCL = GPIO 22 on a standard ESP32 DevKit).
 
 ### Diagrams
 
@@ -56,7 +56,7 @@ Three FreeRTOS tasks, plus one interrupt service routine:
  Button ──▶ ISR ──(binary semaphore)──▶ TaskAlarm
 ```
 
-- **Queue** (`sensorQueue`, 5 items): carries a `SensorData` struct (temperature, humidity, pressure, lux) from the sensor task to the display task. The display task blocks on the queue, so it uses no CPU until new data arrives.
+- **Queue** (`sensorQueue`): carries a `SensorData` struct (temperature, humidity, pressure, lux) from the sensor task to the display task. The display task blocks on the queue, so it uses no CPU until new data arrives.
 - **Mutex** (`i2cMutex`): the sensors and the OLED share one I2C bus, and the Arduino `Wire` library is not thread-safe. The mutex makes sure only one task uses the bus at a time.
 - **Binary semaphore** (`button_semaphore`): given from the button ISR with `xSemaphoreGiveFromISR`, which wakes the alarm task. If that wakes a higher-priority task, `portYIELD_FROM_ISR()` switches to it immediately when the ISR exits.
 - **Priorities:** the alarm task has the highest priority (2), so the button response is not delayed by sensor reads or screen redraws.
